@@ -22,6 +22,7 @@ import {
   type ResolvedFreshViteConfig,
 } from "../utils.ts";
 import * as path from "@std/path";
+import { globToRegExp } from "@std/path";
 import { getBuildId } from "./build_id.ts";
 
 const CSS_LANG_REG = /\.(css|less|sass|scss)(\?.*)?$/;
@@ -299,6 +300,12 @@ export function serverSnapshot(options: ResolvedFreshViteConfig): Plugin[] {
 
             // Walk all static directories. First directory wins for
             // duplicate pathnames.
+            const caRegexps = options.contentAddressedStatic.map((p) =>
+              globToRegExp(p, { extended: true, globstar: true })
+            );
+            const isContentAddressed = (pathname: string) =>
+              caRegexps.some((re) => re.test(pathname));
+
             const seenStaticPaths = new Set<string>();
             for (const dir of options.staticDir) {
               if (!(await fsAdapter.isDirectory(dir))) continue;
@@ -335,6 +342,7 @@ export function serverSnapshot(options: ResolvedFreshViteConfig): Plugin[] {
                   filePath,
                   hash: null,
                   pathname: relative,
+                  immutable: isContentAddressed(relative) || undefined,
                 });
 
                 if (path.basename(relative) === "index.html") {
