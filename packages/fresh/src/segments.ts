@@ -1,5 +1,5 @@
 import type { AnyComponent } from "preact";
-import type { MaybeLazyMiddleware, Middleware } from "./middlewares/mod.ts";
+import type { MaybeLazyMiddleware } from "./middlewares/mod.ts";
 import { type Method, patternToSegments } from "./router.ts";
 import type { LayoutConfig, Route } from "./types.ts";
 import { type Context, getInternals, setAdditionalStyles } from "./context.ts";
@@ -16,6 +16,12 @@ export type RouteComponent<State> =
   | AsyncAnyComponent<PageProps<unknown, State>>
   | AnyComponent<PageProps<unknown, State>>;
 
+export interface NotFoundRoute<State> {
+  matcher: URLPattern;
+  specificity: number;
+  route: Route<State>;
+}
+
 export interface Segment<State> {
   pattern: string;
   middlewares: MaybeLazyMiddleware<State>[];
@@ -25,13 +31,16 @@ export interface Segment<State> {
     css: string[] | null;
   } | null;
   errorRoute: Route<State> | null;
-  notFound: Middleware<State> | null;
   app: {
     component: RouteComponent<State>;
     css: string[] | null;
   } | null;
   children: Map<string, Segment<State>>;
   parent: Segment<State> | null;
+}
+
+export interface RootSegment<State> extends Segment<State> {
+  notFoundRoutes?: NotFoundRoute<State>[];
 }
 
 export function newSegment<State>(
@@ -44,10 +53,51 @@ export function newSegment<State>(
     layout: null,
     app: null,
     errorRoute: null,
-    notFound: null,
     parent,
     children: new Map(),
   };
+}
+
+export function addNotFoundRoute<State>(
+  root: RootSegment<State>,
+  pattern: string,
+  route: Route<State>,
+): void {
+  let pathname: string;
+  let specificity: number;
+  if (
+    pattern === "" || pattern === "/" || pattern === "*" || pattern === "/*"
+  ) {
+    pathname = "/*";
+    specificity = 0;
+  } else {
+    pathname = `${pattern}{/*}?`;
+    specificity = pattern.split("/").length - 1;
+  }
+  root.notFoundRoutes ??= [];
+  root.notFoundRoutes.push({
+    matcher: new URLPattern({ pathname }),
+    specificity,
+    route,
+  });
+}
+
+function resolveNotFound<State>(
+  root: RootSegment<State>,
+  url: URL,
+): Route<State> | null {
+  const routes = root.notFoundRoutes ?? [];
+  let best: Route<State> | null = null;
+  let bestSpec = -1;
+  for (let i = 0; i < routes.length; i++) {
+    const r = routes[i];
+    if (r.specificity < bestSpec) continue;
+    if (r.matcher.test(url)) {
+      best = r.route;
+      bestSpec = r.specificity;
+    }
+  }
+  return best;
 }
 
 export function getOrCreateSegment<State>(
@@ -125,8 +175,11 @@ export function segmentToMiddlewares<State>(
         return await ctx.next();
       } catch (err) {
         const status = err instanceof HttpError ? err.status : 500;
-        if (root.notFound !== null && status === 404) {
-          return await root.notFound(ctx);
+        if (status === 404) {
+          const notFound = resolveNotFound(root, ctx.url);
+          if (notFound !== null) {
+            return await renderRoute(ctx, notFound, status);
+          }
         }
 
         if (errorRoute !== null) {

@@ -7,11 +7,12 @@ import {
 } from "./middlewares/mod.ts";
 import { mergePath, type Method, type Router, toRoutePath } from "./router.ts";
 import {
+  addNotFoundRoute,
   getOrCreateSegment,
   newSegment,
   renderRoute,
+  type RootSegment,
   type RouteComponent,
-  type Segment,
   segmentToMiddlewares,
 } from "./segments.ts";
 import type { LayoutConfig, MaybeLazy, Route, RouteConfig } from "./types.ts";
@@ -123,17 +124,26 @@ export function newMiddlewareCmd<State>(
 
 export interface NotFoundCmd<State> {
   type: CommandType.NotFound;
-  fn: Middleware<State>;
+  pattern: string;
+  item: Route<State>;
+  includeLastSegment: boolean;
 }
 export function newNotFoundCmd<State>(
   routeOrMiddleware: Route<State> | Middleware<State>,
+  pattern = "*",
+  includeLastSegment = false,
 ): NotFoundCmd<State> {
   const route = typeof routeOrMiddleware === "function"
     ? { handler: routeOrMiddleware }
     : routeOrMiddleware;
   ensureHandler(route);
 
-  return { type: CommandType.NotFound, fn: (ctx) => renderRoute(ctx, route) };
+  return {
+    type: CommandType.NotFound,
+    pattern,
+    item: route,
+    includeLastSegment,
+  };
 }
 
 export interface RouteCommand<State> {
@@ -224,7 +234,7 @@ export function applyCommands<State>(
 }
 
 function applyCommandsInner<State>(
-  root: Segment<State>,
+  root: RootSegment<State>,
   router: Router<Middleware<State>>,
   commands: Command<State>[],
   basePath: string,
@@ -244,7 +254,7 @@ function applyCommandsInner<State>(
         break;
       }
       case CommandType.NotFound: {
-        root.notFound = cmd.fn;
+        addNotFoundRoute(root, cmd.pattern, cmd.item);
         break;
       }
       case CommandType.Error: {

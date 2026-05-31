@@ -56,6 +56,8 @@ export async function crawlRouteDir<State>(
       type = CommandType.App;
     } else if (id.endsWith("/_404")) {
       type = CommandType.NotFound;
+      pattern = pathToPattern(id.slice(1, -"/_404".length));
+      routePattern = pattern;
     } else if (id.endsWith("/_error") || id.endsWith("/_500")) {
       type = CommandType.Error;
       pattern = pathToPattern(

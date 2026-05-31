@@ -134,7 +134,7 @@ export function fsItemsToCommands<State>(
           css: mod.css,
           // deno-lint-ignore no-explicit-any
           handler: handlers as any ?? undefined,
-        }));
+        }, pattern, true));
         continue;
       }
       case CommandType.App: {
