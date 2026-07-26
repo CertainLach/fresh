@@ -5,32 +5,25 @@ import {
   setBuildCache,
 } from "../app.ts";
 import { fsAdapter } from "../fs.ts";
-import * as path from "@std/path";
-import * as colors from "@std/fmt/colors";
-import { bundleJs, type FreshBundleOptions } from "./esbuild.ts";
 
 import { liveReload } from "./middlewares/live_reload.ts";
 import {
-  cssAssetHash,
   FileTransformer,
   type OnTransformOptions,
 } from "./file_transformer.ts";
 import type { TransformFn } from "./file_transformer.ts";
 import {
-  type DevBuildCache,
   DiskBuildCache,
   type FsRoute,
   MemoryBuildCache,
 } from "./dev_build_cache.ts";
 import { BUILD_ID } from "@fresh/build-id";
-import { updateCheck } from "./update_check.ts";
 import { devErrorOverlay } from "./middlewares/error_overlay/middleware.tsx";
 import { automaticWorkspaceFolders } from "./middlewares/automatic_workspace_folders.ts";
 import { parseDirPath } from "../config.ts";
-import { pathToExportName, UniqueNamer } from "../utils.ts";
-import { checkDenoCompilerOptions } from "./check.ts";
+import { pathToExportName } from "../utils.ts";
 import { crawlFsItem } from "./fs_crawl.ts";
-import { TEST_FILE_PATTERN, UPDATE_INTERVAL } from "../constants.ts";
+import { TEST_FILE_PATTERN } from "../constants.ts";
 
 export interface BuildOptions {
   /**
@@ -104,12 +97,6 @@ export interface BuildOptions {
    * @example ["**\/*.wasm", "**\/*.bin"]
    */
   contentAddressedStatic?: string[];
-
-  /**
-   * Control if/how production source maps should be handled.
-   * See https://esbuild.github.io/api/#source-maps for more information.
-   */
-  sourceMap?: FreshBundleOptions["sourceMap"];
 }
 
 /**
@@ -117,21 +104,19 @@ export interface BuildOptions {
  */
 export type ResolvedBuildConfig =
   & Required<
-    Omit<BuildOptions, "sourceMap" | "staticDir" | "contentAddressedStatic">
+    Omit<BuildOptions, "staticDir" | "contentAddressedStatic">
   >
   & {
     /** Always normalized to an array of absolute paths. */
     staticDir: string[];
     mode: "development" | "production";
     buildId: string;
-    sourceMap?: FreshBundleOptions["sourceMap"];
     contentAddressedStatic: string[];
   };
 
 // deno-lint-ignore no-explicit-any
 export class Builder<State = any> {
   #transformer: FileTransformer;
-  #addedInternalTransforms = false;
   config: ResolvedBuildConfig;
   #islandSpecifiers = new Set<string>();
   #fsRoutes: FsRoute<State>;
@@ -163,7 +148,6 @@ export class Builder<State = any> {
       ignore: options?.ignore ?? [TEST_FILE_PATTERN],
       mode: "production",
       buildId: BUILD_ID,
-      sourceMap: options?.sourceMap,
       contentAddressedStatic: options?.contentAddressedStatic ?? [],
     };
   }
@@ -183,9 +167,6 @@ export class Builder<State = any> {
     importApp: () => Promise<{ app: App<State> } | App<State>>,
     options: ListenOptions = {},
   ): Promise<void> {
-    // Run update check in background
-    updateCheck(UPDATE_INTERVAL).catch(() => {});
-
     this.config.mode = "development";
 
     await this.#crawlFsItems();
@@ -237,7 +218,8 @@ export class Builder<State = any> {
         onListen: options.onListen ??
           createOnListen(originalBasePath, options),
       }),
-      this.#build(buildCache, true),
+      // TODO: build
+      // this.#build(buildCache, true),
     ]);
     return;
   }
@@ -288,7 +270,8 @@ export class Builder<State = any> {
         this.#transformer,
       );
 
-    await this.#build(buildCache, this.config.mode === "development");
+    // await this.#build(buildCache, this.config.mode === "development");
+    // TODO: build
     await buildCache.prepare();
 
     return (app) => {
@@ -310,107 +293,6 @@ export class Builder<State = any> {
     }
 
     this.#fsRoutes.files = routes;
-  }
-
-  async #build<T>(buildCache: DevBuildCache<T>, dev: boolean): Promise<void> {
-    const { target, outDir, root } = this.config;
-    const staticOutDir = path.join(outDir, "static");
-
-    const { denoJson, jsxImportSource } = await checkDenoCompilerOptions(root);
-
-    if (!this.#addedInternalTransforms) {
-      this.#addedInternalTransforms = true;
-      cssAssetHash(this.#transformer);
-    }
-
-    try {
-      await Deno.remove(staticOutDir);
-    } catch {
-      // Ignore
-    }
-
-    const runtimePath = dev
-      ? "../runtime/client/dev.ts"
-      : "../runtime/client/mod.ts";
-
-    const entryPoints: Record<string, string> = {
-      "fresh-runtime": new URL(runtimePath, import.meta.url).href,
-    };
-
-    if (dev) {
-      entryPoints["fresh-hmr"] = new URL(
-        "../runtime/client/dev_hmr.ts",
-        import.meta.url,
-      ).href;
-    }
-
-    const namer = new UniqueNamer();
-    for (const spec of this.#islandSpecifiers) {
-      const specName = specToName(spec);
-      const name = namer.getUniqueName(specName);
-
-      entryPoints[name] = spec;
-
-      buildCache.islandModNameToChunk.set(name, {
-        name,
-        server: spec,
-        browser: null,
-        css: [],
-      });
-    }
-
-    const output = await bundleJs({
-      cwd: root,
-      outDir: staticOutDir,
-      dev: dev ?? false,
-      target,
-      buildId: BUILD_ID,
-      entryPoints,
-      jsxImportSource,
-      denoJsonPath: denoJson,
-      sourceMap: this.config.sourceMap,
-    });
-
-    const prefix = `/_fresh/js/${BUILD_ID}/`;
-
-    for (const name of buildCache.islandModNameToChunk.keys()) {
-      const chunkName = output.entryToChunk.get(name);
-      if (chunkName === undefined) {
-        throw new Error(`Could not find chunk for island ${name}`);
-      }
-
-      const pathname = `${prefix}${chunkName}`;
-      buildCache.islandModNameToChunk.get(name)!.browser = pathname;
-    }
-
-    if (dev) {
-      const hmrChunkName = output.entryToChunk.get("fresh-hmr");
-      if (hmrChunkName !== undefined) {
-        buildCache.hmrClientEntry = `${prefix}${hmrChunkName}`;
-      }
-    }
-
-    const contentAddressedPrefix = "/_fresh/js/c/";
-    for (let i = 0; i < output.files.length; i++) {
-      const file = output.files[i];
-      // Content-hashed chunks/assets are placed outside the BUILD_ID
-      // directory so their URLs survive across deploys unchanged.
-      const pathname = file.path.startsWith("../c/")
-        ? `${contentAddressedPrefix}${file.path.slice("../c/".length)}`
-        : `${prefix}${file.path}`;
-      await buildCache.addProcessedFile(pathname, file.contents, file.hash);
-    }
-
-    await buildCache.flush();
-
-    if (!dev) {
-      // deno-lint-ignore no-console
-      console.log(
-        `Assets written to: ${colors.cyan(outDir)}`,
-      );
-    }
-
-    this.#ready.resolve();
   }
 }
 

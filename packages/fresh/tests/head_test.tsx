@@ -1,5 +1,5 @@
-import { App, staticFiles } from "fresh";
-import { Head } from "fresh/runtime";
+import { App, staticFiles } from "@fresh/core";
+import { Head } from "@fresh/core/runtime";
 import {
   buildProd,
   parseHtml,

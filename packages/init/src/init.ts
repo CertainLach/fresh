@@ -6,13 +6,8 @@ import initConfig from "../deno.json" with { type: "json" };
 
 // Keep these as is, as we replace these version in our release script
 const FRESH_VERSION = "2.3.3";
-const FRESH_TAILWIND_VERSION = "1.0.0";
-const FRESH_VITE_PLUGIN = "1.1.2";
 const PREACT_VERSION = "10.29.1";
 const PREACT_SIGNALS_VERSION = "2.9.0";
-const TAILWINDCSS_VERSION = "4.1.10";
-const TAILWINDCSS_POSTCSS_VERSION = "4.1.10";
-const POSTCSS_VERSION = "8.5.6";
 
 function css(strs: TemplateStringsArray, ...exprs: string[]): string {
   let out = "";
@@ -58,22 +53,14 @@ ${colors.rgb8("USAGE:", 3)}
 
 ${colors.rgb8("OPTIONS:", 3)}
     ${colors.rgb8("--force", 2)}      Overwrite existing files
-    ${colors.rgb8("--tailwind", 2)}   Use Tailwind for styling
     ${colors.rgb8("--vscode", 2)}     Setup project for VS Code
     ${colors.rgb8("--docker", 2)}     Setup Project to use Docker
-    ${colors.rgb8("--builder", 2)}    Setup with builder instead of vite
     ${colors.rgb8("--help, -h", 2)}   Show this help message
 `;
 
 export const CONFIRM_EMPTY_MESSAGE =
   "The target directory is not empty (files could get overwritten). Do you want to continue anyway?";
-export const CONFIRM_TAILWIND_MESSAGE = `Set up ${
-  colors.cyan("Tailwind CSS")
-} for styling?`;
 export const CONFIRM_VSCODE_MESSAGE = `Do you use ${colors.cyan("VS Code")}?`;
-export const CONFIRM_VITE_MESSAGE = `Set up ${
-  colors.cyan("Vite")
-} for build tooling?`;
 
 export async function initProject(
   cwd = Deno.cwd(),
@@ -81,9 +68,7 @@ export async function initProject(
   flags: {
     docker?: boolean | null;
     force?: boolean | null;
-    tailwind?: boolean | null;
     vscode?: boolean | null;
-    builder?: boolean | null;
     help?: boolean | null;
     h?: boolean | null;
     skipInstall?: boolean | null;
@@ -139,17 +124,7 @@ export async function initProject(
     }
   }
 
-  const useVite = !flags.builder;
-
   const useDocker = flags.docker;
-  let useTailwind = flags.tailwind || false;
-  if (flags.tailwind == null) {
-    if (
-      confirm(CONFIRM_TAILWIND_MESSAGE)
-    ) {
-      useTailwind = true;
-    }
-  }
 
   const useVSCode = flags.vscode == null
     ? confirm(CONFIRM_VSCODE_MESSAGE)
@@ -348,22 +323,10 @@ html {
 }
 
 ${GRADIENT_CSS}`;
-  // deno-fmt-ignore
-  const TAILWIND_CSS = css`@import "tailwindcss";
-${GRADIENT_CSS}`;
 
-  const cssStyles = useTailwind ? TAILWIND_CSS : NO_TAILWIND_STYLES;
+  const cssStyles = NO_TAILWIND_STYLES;
 
-  if (useVite) {
-    await writeFile("assets/styles.css", cssStyles);
-    await writeFile(
-      "client.ts",
-      `// Import CSS files here for hot module reloading to work.
-import "./assets/styles.css";`,
-    );
-  } else {
-    await writeFile("static/styles.css", cssStyles);
-  }
+  await writeFile("static/styles.css", cssStyles);
   // deno-fmt-ignore
   const STATIC_LOGO =
     `<svg width="40" height="40" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -501,9 +464,9 @@ export default define.page(function App({ Component }) {
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>${path.basename(projectDir)}</title>${
-    useVite ? "" : `\n        <link rel="stylesheet" href="/styles.css" />`
-  }
+        <title>${
+    path.basename(projectDir)
+  }</title>${`\n        <link rel="stylesheet" href="/styles.css" />`}
       </head>
       <body>
         <Component />
@@ -544,20 +507,16 @@ export default function Counter(props: CounterProps) {
   await writeFile("islands/Counter.tsx", ISLANDS_COUNTER_TSX);
 
   const DEV_TS = `#!/usr/bin/env -S deno run -A --watch=static/,routes/
-${useTailwind ? `import { tailwind } from "@fresh/plugin-tailwind";\n` : ""}
 import { Builder } from "fresh/dev";
 
 const builder = new Builder();
-${useTailwind ? "tailwind(builder);" : ""}
 if (Deno.args.includes("build")) {
   await builder.build();
 } else {
   await builder.listen(() => import("./main.ts"));
 }`;
 
-  if (!useVite) {
-    await writeFile("dev.ts", DEV_TS);
-  }
+  await writeFile("dev.ts", DEV_TS);
 
   const denoJson = {
     nodeModulesDir: "manual",
@@ -603,51 +562,7 @@ if (Deno.args.includes("build")) {
     } as Record<string, unknown>,
   };
 
-  if (useVite) {
-    denoJson.compilerOptions.types = ["vite/client"];
-    denoJson.tasks.dev = "vite";
-    denoJson.tasks.build = "vite build";
-
-    const vitePluginVersion = await getLatestVersion(
-      "@fresh/plugin-vite",
-      FRESH_VITE_PLUGIN,
-    );
-
-    denoJson.imports["@fresh/plugin-vite"] =
-      `jsr:@fresh/plugin-vite@^${vitePluginVersion}`;
-    denoJson.imports["vite"] = "npm:vite@^7.1.3";
-    denoJson.imports["@types/babel__core"] = "npm:@types/babel__core@^7.20.5";
-
-    if (useTailwind) {
-      denoJson.imports["tailwindcss"] =
-        `npm:tailwindcss@^${TAILWINDCSS_VERSION}`;
-      denoJson.imports["@tailwindcss/vite"] = `npm:@tailwindcss/vite@^4.1.12`;
-    }
-  } else if (useTailwind) {
-    denoJson.imports["tailwindcss"] = `npm:tailwindcss@^${TAILWINDCSS_VERSION}`;
-    denoJson.imports["@fresh/plugin-tailwind"] =
-      `jsr:@fresh/plugin-tailwind@^${FRESH_TAILWIND_VERSION}`;
-    denoJson.imports["@tailwindcss/postcss"] =
-      `npm:@tailwindcss/postcss@^${TAILWINDCSS_POSTCSS_VERSION}`;
-    denoJson.imports["postcss"] = `npm:postcss@^${POSTCSS_VERSION}`;
-  }
-
   await writeFile("deno.json", denoJson);
-
-  if (useVite) {
-    let viteConfig = `import { defineConfig } from "vite";
-import { fresh } from "@fresh/plugin-vite";\n`;
-
-    if (useTailwind) {
-      viteConfig += `import tailwindcss from "@tailwindcss/vite";\n`;
-    }
-
-    viteConfig += `\nexport default defineConfig({
-  plugins: [fresh()${useTailwind ? ", tailwindcss()" : ""}],
-});`;
-
-    await writeFile("vite.config.ts", viteConfig);
-  }
 
   const README_MD = `# Fresh project
 
@@ -685,17 +600,11 @@ This will watch the project directory and restart as necessary.`;
       "[javascript]": {
         "editor.defaultFormatter": "denoland.vscode-deno",
       },
-      "files.associations": useTailwind
-        ? {
-          "*.css": "tailwindcss",
-        }
-        : undefined,
     };
 
     await writeFile(".vscode/settings.json", vscodeSettings);
 
     const recommendations = ["denoland.vscode-deno"];
-    if (useTailwind) recommendations.push("bradlc.vscode-tailwindcss");
     await writeFile(".vscode/extensions.json", { recommendations });
   }
 

@@ -709,11 +709,6 @@ export const app = new App().fsRoutes()`,
   const builder = new Builder({
     root: tmp,
     outDir: path.join(tmp, "dist"),
-    sourceMap: {
-      kind: "external",
-      sourceRoot: "foo",
-      sourcesContent: true,
-    },
   });
   await builder.build();
 
@@ -818,45 +813,6 @@ export const app = new App()
     res = await fetch(`${address}/foo.txt`);
     expect(await res.text()).toEqual("ok");
   });
-});
-
-integrationTest("Builder - island that imports json entry", async () => {
-  const root = path.join(import.meta.dirname!, "..", "..");
-  await using _tmp = await withTmpDir({ dir: root, prefix: "tmp_builder_" });
-  await using _outDir = await withTmpDir();
-  const tmp = _tmp.dir;
-
-  await writeFiles(tmp, {
-    "deno.json": JSON.stringify({
-      links: [path.relative(tmp, root)],
-      workspace: [],
-      compilerOptions: {
-        jsx: "react-jsx",
-        jsxImportSource: "preact",
-      },
-      imports: {
-        "fresh": "jsr:@fresh/core@*",
-        "preact": "npm:preact@*",
-        "@preact/signals": "npm:@preact/signals@*",
-        "mime-db": "npm:mime-db@*",
-      },
-    }),
-    "islands/Foo.tsx": `import * as mime from "mime-db"
-export const Foo = () => {
-  console.log(mime);
-  return <h1>ok</h1>
-}`,
-    "routes/index.ts": `export default () => <Foo />`,
-    "main.ts": `import { App, staticFiles } from "fresh";
-export const app = new App()
-  .use(staticFiles())
-  .fsRoutes();`,
-  });
-
-  const builder = new Builder({
-    root: tmp,
-  });
-  await builder.build();
 });
 
 Deno.test("specToName", () => {

@@ -6,6 +6,6 @@
     ".": "./mod.ts"
   },
   "imports": {
-    "@std/encoding": "jsr:@std/encoding@^1.0.10"
+    "@std/encoding": "jsr:@std/encoding@^1.0.11"
   }
 }

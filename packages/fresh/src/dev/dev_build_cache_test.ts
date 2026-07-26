@@ -23,6 +23,7 @@ Deno.test({
       outDir: "",
       routeDir: "",
       staticDir: [""],
+      contentAddressedStatic: [],
       target: "latest",
     };
     const fileTransformer = new FileTransformer(createFakeFs({}), tmp);

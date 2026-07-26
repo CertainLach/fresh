@@ -1,7 +1,5 @@
 import { expect } from "@std/expect";
 import {
-  CONFIRM_TAILWIND_MESSAGE,
-  CONFIRM_VITE_MESSAGE,
   CONFIRM_VSCODE_MESSAGE,
   HELP_TEXT,
   initProject,
@@ -153,12 +151,6 @@ async function expectNotProjectFile(dir: string, pathname: string) {
   }
 }
 
-async function readProjectFile(dir: string, pathname: string): Promise<string> {
-  const filePath = path.join(dir, ...pathname.split("/").filter(Boolean));
-  const content = await Deno.readTextFile(filePath);
-  return content;
-}
-
 Deno.test("init - show help", async () => {
   using logs = stubLogs();
 
@@ -176,7 +168,7 @@ Deno.test("init - new project", async () => {
   using _promptStub = stubPrompt("fresh-init");
   using _confirmStub = stubConfirm();
 
-  await testInitProject(tmp.dir, [], { builder: true });
+  await testInitProject(tmp.dir, [], {});
 });
 
 Deno.test("init - create project dir", async () => {
@@ -184,7 +176,7 @@ Deno.test("init - create project dir", async () => {
   const dir = tmp.dir;
   using _promptStub = stubPrompt("fresh-init");
   using _confirmStub = stubConfirm();
-  await testInitProject(dir, [], { builder: true });
+  await testInitProject(dir, [], {});
 
   const root = path.join(dir, "fresh-init");
   await expectProjectFile(root, "deno.json");
@@ -194,24 +186,6 @@ Deno.test("init - create project dir", async () => {
   await expectProjectFile(root, "static/styles.css");
 });
 
-Deno.test("init - with tailwind", async () => {
-  await using tmp = await withTmpDir();
-  const dir = tmp.dir;
-  using _promptStub = stubPrompt(".");
-  using _confirmStub = stubConfirm({
-    [CONFIRM_TAILWIND_MESSAGE]: true,
-  });
-  await testInitProject(dir, [], { builder: true });
-
-  const css = await readProjectFile(dir, "static/styles.css");
-  expect(css).toMatch(/@import "tailwindcss"/);
-
-  const main = await readProjectFile(dir, "main.ts");
-  const dev = await readProjectFile(dir, "dev.ts");
-  expect(main).not.toMatch(/tailwind/);
-  expect(dev).toMatch(/tailwind/);
-});
-
 Deno.test("init - with vscode", async () => {
   await using tmp = await withTmpDir();
   const dir = tmp.dir;
@@ -219,7 +193,7 @@ Deno.test("init - with vscode", async () => {
   using _confirmStub = stubConfirm({
     [CONFIRM_VSCODE_MESSAGE]: true,
   });
-  await testInitProject(dir, [], { builder: true });
+  await testInitProject(dir, [], {});
 
   await expectProjectFile(dir, ".vscode/settings.json");
   await expectProjectFile(dir, ".vscode/extensions.json");
@@ -235,7 +209,7 @@ Deno.test({
     const dir = tmp.dir;
     using _promptStub = stubPrompt(".");
     using _confirmStub = stubConfirm();
-    await testInitProject(dir, [], { builder: true });
+    await testInitProject(dir, [], {});
     await expectProjectFile(dir, "main.ts");
     await expectProjectFile(dir, "dev.ts");
 
@@ -251,32 +225,6 @@ Deno.test({
   },
 });
 
-Deno.test(
-  "init with tailwind - fmt, lint, and type check project",
-  async () => {
-    await using tmp = await withTmpDir();
-    const dir = tmp.dir;
-    using _promptStub = stubPrompt(".");
-    using _confirmStub = stubConfirm({
-      [CONFIRM_TAILWIND_MESSAGE]: true,
-    });
-
-    await testInitProject(dir, [], { builder: true });
-    await expectProjectFile(dir, "main.ts");
-    await expectProjectFile(dir, "dev.ts");
-
-    await patchProject(dir);
-
-    const check = await new Deno.Command(Deno.execPath(), {
-      args: ["task", "check"],
-      cwd: dir,
-      stderr: "inherit",
-      stdout: "inherit",
-    }).output();
-    expect(check.code).toEqual(0);
-  },
-);
-
 Deno.test({
   // TODO: For some reason this test is flaky in GitHub CI. It works when
   // testing locally on windows though. Not sure what's going on.
@@ -287,7 +235,7 @@ Deno.test({
     const dir = tmp.dir;
     using _promptStub = stubPrompt(".");
     using _confirmStub = stubConfirm();
-    await testInitProject(dir, [], { builder: true });
+    await testInitProject(dir, [], {});
     await expectProjectFile(dir, "main.ts");
     await expectProjectFile(dir, "dev.ts");
 
@@ -310,7 +258,7 @@ Deno.test("init - can start built project", async () => {
   const dir = tmp.dir;
   using _promptStub = stubPrompt(".");
   using _confirmStub = stubConfirm();
-  await testInitProject(dir, [], { builder: true });
+  await testInitProject(dir, [], {});
   await expectProjectFile(dir, "main.ts");
   await expectProjectFile(dir, "dev.ts");
 
@@ -342,7 +290,7 @@ Deno.test("init - errors on missing build cache in prod", async () => {
   const dir = tmp.dir;
   using _promptStub = stubPrompt(".");
   using _confirmStub = stubConfirm();
-  await testInitProject(dir, [], { builder: true });
+  await testInitProject(dir, [], {});
   await expectProjectFile(dir, "main.ts");
   await expectProjectFile(dir, "dev.ts");
 
@@ -360,75 +308,4 @@ Deno.test("init - errors on missing build cache in prod", async () => {
   expect(cp.code).toEqual(1);
 
   expect(stderr).toMatch(/Module not found/);
-});
-
-// There is a peerDependency issue with links
-Deno.test.ignore("init - vite dev server", async () => {
-  await using tmp = await withTmpDir();
-  const dir = tmp.dir;
-  using _promptStub = stubPrompt(".");
-  using _confirmStub = stubConfirm();
-  await testInitProject(dir, [], {});
-
-  await expectProjectFile(dir, "vite.config.ts");
-  await expectNotProjectFile(dir, "dev.ts");
-
-  await patchProject(dir);
-
-  await withChildProcessServer(
-    { cwd: dir, args: ["task", "dev"] },
-    async (address) => {
-      await withBrowser(async (page) => {
-        await page.goto(address);
-        await page.locator("#decrement").click();
-        await waitForText(page, "button + p", "2");
-      });
-    },
-  );
-});
-
-// There is a peerDependency issue with links
-Deno.test.ignore("init - vite build", async () => {
-  await using tmp = await withTmpDir();
-  const dir = tmp.dir;
-  using _promptStub = stubPrompt(".");
-  using _confirmStub = stubConfirm();
-  await testInitProject(dir, [], {});
-
-  await expectProjectFile(dir, "vite.config.ts");
-
-  await patchProject(dir);
-
-  // Build
-  await new Deno.Command(Deno.execPath(), {
-    args: ["task", "build"],
-    stdin: "null",
-    stdout: "piped",
-    stderr: "piped",
-    cwd: dir,
-  }).output();
-
-  await withChildProcessServer(
-    { cwd: dir, args: ["serve", "-A", "--port", "0", "_fresh/server.js"] },
-    async (address) => {
-      await withBrowser(async (page) => {
-        await page.goto(address);
-        await page.locator("button").click();
-        await waitForText(page, "button + p", "2");
-      });
-    },
-  );
-});
-
-Deno.test("init - with vite", async () => {
-  await using tmp = await withTmpDir();
-  const dir = tmp.dir;
-  using _promptStub = stubPrompt(".");
-  using _confirmStub = stubConfirm({
-    [CONFIRM_VITE_MESSAGE]: true,
-  });
-  await testInitProject(dir, [], {});
-
-  await expectProjectFile(dir, "vite.config.ts");
-  await expectNotProjectFile(dir, "dev.ts");
 });

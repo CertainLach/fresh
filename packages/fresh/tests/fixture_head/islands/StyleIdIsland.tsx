@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { Head } from "fresh/runtime";
+import { Head } from "@fresh/core/runtime";
 
 export function StyleIdIsland() {
   const [ready, setReady] = useState(false);
